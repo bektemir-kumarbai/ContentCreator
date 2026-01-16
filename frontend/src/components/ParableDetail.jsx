@@ -14,6 +14,7 @@ import {
   uploadEnglishAudio,
   uploadEnglishVideoFragment,
   generateEnglishFinalVideo,
+  updateVideoDuration,
   STATIC_BASE_URL
 } from '../api'
 
@@ -131,6 +132,17 @@ function ParableDetail() {
       console.error(err)
     } finally {
       setUploadingVideos(prev => ({ ...prev, [sceneOrder]: false }))
+    }
+  }
+
+  const handleDurationChange = async (videoFragmentId, targetDuration) => {
+    try {
+      const value = targetDuration === '' ? null : parseFloat(targetDuration)
+      await updateVideoDuration(id, videoFragmentId, value)
+      await loadParable()
+    } catch (err) {
+      setError('Ошибка обновления длительности')
+      console.error(err)
     }
   }
 
@@ -632,9 +644,10 @@ function ParableDetail() {
           </p>
           <div className="upload-section">
             {parable.generated_images.map((image) => {
-              const hasVideo = parable.video_fragments?.some(
+              const videoFragment = parable.video_fragments?.find(
                 vf => vf.scene_order === image.scene_order
               )
+              const hasVideo = !!videoFragment
               const isDragging = draggingScenes[image.scene_order] || false
               
               const handleDragOver = (e) => {
@@ -656,6 +669,10 @@ function ParableDetail() {
                 }
               }
               
+              const sceneLabel = image.scene_order === -1 
+                ? '⚡ ХУК' 
+                : `Сцена ${image.scene_order + 1}`
+              
               return (
                 <div 
                   key={image.id} 
@@ -663,37 +680,75 @@ function ParableDetail() {
                   style={{
                     border: isDragging ? '2px dashed #667eea' : '1px solid #e0e0e0',
                     backgroundColor: isDragging ? '#f0f4ff' : 'white',
-                    transition: 'all 0.3s ease'
+                    transition: 'all 0.3s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    padding: '1rem'
                   }}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
                 >
-                  <span style={{ fontWeight: '600', minWidth: '100px' }}>
-                    Сцена {image.scene_order + 1}:
-                  </span>
-                  {hasVideo ? (
-                    <span style={{ color: '#155724', fontWeight: '600' }}>✅ Загружено</span>
-                  ) : (
-                    <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', width: '100%' }}>
+                    <span style={{ fontWeight: '600', minWidth: '100px' }}>
+                      {sceneLabel}:
+                    </span>
+                    {hasVideo ? (
+                      <>
+                        <span style={{ color: '#155724', fontWeight: '600' }}>✅ Загружено</span>
+                        {videoFragment.duration && (
+                          <span style={{ color: '#666', fontSize: '0.9rem' }}>
+                            (Текущая: {videoFragment.duration.toFixed(2)}s)
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="file"
+                          accept="video/*"
+                          onChange={(e) => {
+                            if (e.target.files[0]) {
+                              handleVideoUpload(image.scene_order, e.target.files[0])
+                            }
+                          }}
+                          disabled={uploadingVideos[image.scene_order]}
+                          style={{ flex: 1 }}
+                        />
+                        {uploadingVideos[image.scene_order] && (
+                          <span style={{ color: '#856404' }}>⏳ Загрузка...</span>
+                        )}
+                        {isDragging && (
+                          <span style={{ color: '#667eea', fontWeight: '600' }}>📥 Перетащите видео сюда</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  {hasVideo && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+                      <label style={{ fontSize: '0.9rem', color: '#666' }}>
+                        Целевая длительность (сек):
+                      </label>
                       <input
-                        type="file"
-                        accept="video/*"
-                        onChange={(e) => {
-                          if (e.target.files[0]) {
-                            handleVideoUpload(image.scene_order, e.target.files[0])
-                          }
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        value={videoFragment.target_duration || ''}
+                        onChange={(e) => handleDurationChange(videoFragment.id, e.target.value)}
+                        placeholder="Авто"
+                        style={{
+                          width: '100px',
+                          padding: '0.25rem 0.5rem',
+                          border: '1px solid #ddd',
+                          borderRadius: '4px',
+                          fontSize: '0.9rem'
                         }}
-                        disabled={uploadingVideos[image.scene_order]}
-                        style={{ flex: 1 }}
                       />
-                      {uploadingVideos[image.scene_order] && (
-                        <span style={{ color: '#856404' }}>⏳ Загрузка...</span>
-                      )}
-                      {isDragging && (
-                        <span style={{ color: '#667eea', fontWeight: '600' }}>📥 Перетащите видео сюда</span>
-                      )}
-                    </>
+                      <span style={{ fontSize: '0.8rem', color: '#999' }}>
+                        (оставьте пустым для автоматической обработки)
+                      </span>
+                    </div>
                   )}
                 </div>
               )

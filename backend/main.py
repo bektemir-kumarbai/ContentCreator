@@ -14,7 +14,8 @@ from models import (
 from schemas import (
     ParableCreate, ParableResponse, ParableDetailResponse,
     ProcessingStatus, VideoFragmentResponse,
-    EnglishParableResponse, EnglishParableDetailResponse, EnglishVideoFragmentResponse
+    EnglishParableResponse, EnglishParableDetailResponse, EnglishVideoFragmentResponse,
+    UpdateVideoDurationRequest
 )
 from services.gemini_service import GeminiService
 from services.elevenlabs_service import ElevenLabsService
@@ -531,6 +532,31 @@ async def upload_video_fragment(
     return video_fragment
 
 
+@app.put("/parables/{parable_id}/videos/{video_fragment_id}/duration")
+async def update_video_duration(
+    parable_id: int,
+    video_fragment_id: int,
+    request: UpdateVideoDurationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Обновляет целевую длительность для видеофрагмента
+    """
+    video_fragment = db.query(VideoFragment).filter(
+        VideoFragment.id == video_fragment_id,
+        VideoFragment.parable_id == parable_id
+    ).first()
+    
+    if not video_fragment:
+        raise HTTPException(status_code=404, detail="Video fragment not found")
+    
+    video_fragment.target_duration = request.target_duration
+    db.commit()
+    db.refresh(video_fragment)
+    
+    return video_fragment
+
+
 @app.post("/parables/{parable_id}/regenerate-images", response_model=ProcessingStatus)
 async def regenerate_images(
     parable_id: int,
@@ -675,6 +701,7 @@ async def generate_final_video_task(parable_id: int, db: Session):
         ).order_by(VideoFragment.scene_order).all()
         
         video_paths = [vf.video_path for vf in video_fragments]
+        target_durations = [vf.target_duration for vf in video_fragments]
         
         # Получаем аудио
         audio_file = db.query(AudioFile).filter(
@@ -704,7 +731,8 @@ async def generate_final_video_task(parable_id: int, db: Session):
             text_for_subtitles=parable.text_for_tts,
             parable_id=parable_id,
             music_path=music_path,
-            music_volume_db=music_volume
+            music_volume_db=music_volume,
+            target_durations=target_durations
         )
         
         # Обновляем притчу
@@ -1412,6 +1440,38 @@ async def upload_english_video_fragment(
     return video_fragment
 
 
+@app.put("/parables/{parable_id}/english/videos/{video_fragment_id}/duration")
+async def update_english_video_duration(
+    parable_id: int,
+    video_fragment_id: int,
+    request: UpdateVideoDurationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Обновляет целевую длительность для видеофрагмента английской версии
+    """
+    english_parable = db.query(EnglishParable).filter(
+        EnglishParable.parable_id == parable_id
+    ).first()
+    
+    if not english_parable:
+        raise HTTPException(status_code=404, detail="English version not found")
+    
+    video_fragment = db.query(EnglishVideoFragment).filter(
+        EnglishVideoFragment.id == video_fragment_id,
+        EnglishVideoFragment.english_parable_id == english_parable.id
+    ).first()
+    
+    if not video_fragment:
+        raise HTTPException(status_code=404, detail="Video fragment not found")
+    
+    video_fragment.target_duration = request.target_duration
+    db.commit()
+    db.refresh(video_fragment)
+    
+    return video_fragment
+
+
 @app.post("/parables/{parable_id}/english/generate-final", response_model=ProcessingStatus)
 async def generate_english_final_video(
     parable_id: int,
@@ -1470,6 +1530,7 @@ async def generate_english_final_video_task(english_parable_id: int, db: Session
         ).order_by(EnglishVideoFragment.scene_order).all()
         
         video_paths = [vf.video_path for vf in video_fragments]
+        target_durations = [vf.target_duration for vf in video_fragments]
         
         # Получаем аудио
         audio_file = db.query(EnglishAudioFile).filter(
@@ -1499,7 +1560,8 @@ async def generate_english_final_video_task(english_parable_id: int, db: Session
             text_for_subtitles=english_parable.text_for_tts,
             parable_id=f"english_{english_parable_id}",
             music_path=music_path,
-            music_volume_db=music_volume
+            music_volume_db=music_volume,
+            target_durations=target_durations
         )
         
         # Обновляем притчу

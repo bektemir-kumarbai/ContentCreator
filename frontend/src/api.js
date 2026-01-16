@@ -72,6 +72,14 @@ export const generateFinalVideo = async (id) => {
   return response.data
 }
 
+export const updateVideoDuration = async (parableId, videoFragmentId, targetDuration) => {
+  const response = await api.put(
+    `/parables/${parableId}/videos/${videoFragmentId}/duration`,
+    { target_duration: targetDuration }
+  )
+  return response.data
+}
+
 export const deleteParable = async (id) => {
   const response = await api.delete(`/parables/${id}`)
   return response.data
@@ -145,6 +153,14 @@ export const uploadEnglishVideoFragment = async (id, sceneOrder, file) => {
 
 export const generateEnglishFinalVideo = async (id) => {
   const response = await api.post(`/parables/${id}/english/generate-final`)
+  return response.data
+}
+
+export const updateEnglishVideoDuration = async (parableId, videoFragmentId, targetDuration) => {
+  const response = await api.put(
+    `/parables/${parableId}/english/videos/${videoFragmentId}/duration`,
+    { target_duration: targetDuration }
+  )
   return response.data
 }
 

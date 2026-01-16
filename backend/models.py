@@ -87,6 +87,7 @@ class VideoFragment(Base):
     video_path = Column(Text, nullable=False)
     scene_order = Column(Integer, nullable=False)
     duration = Column(Float)
+    target_duration = Column(Float)  # Целевая длительность (для ускорения/замедления)
     uploaded_at = Column(DateTime, server_default=func.now())
     
     parable = relationship("Parable", back_populates="video_fragments")
@@ -182,6 +183,7 @@ class EnglishVideoFragment(Base):
     video_path = Column(Text, nullable=False)
     scene_order = Column(Integer, nullable=False)
     duration = Column(Float)
+    target_duration = Column(Float)  # Целевая длительность (для ускорения/замедления)
     uploaded_at = Column(DateTime, server_default=func.now())
     
     english_parable = relationship("EnglishParable", back_populates="video_fragments")

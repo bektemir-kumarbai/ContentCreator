@@ -18,7 +18,8 @@ class VideoService:
         text_for_subtitles: str,
         parable_id: int,
         music_path: Optional[str] = None,
-        music_volume_db: float = -18.0
+        music_volume_db: float = -18.0,
+        target_durations: Optional[List[Optional[float]]] = None
     ) -> Tuple[str, float]:
         """
         Создаёт финальное видео с синхронизацией аудио и музыкой
@@ -30,12 +31,26 @@ class VideoService:
             parable_id: ID притчи
             music_path: Путь к музыкальному треку (опционально)
             music_volume_db: Громкость музыки в dB относительно голоса (по умолчанию -18dB)
+            target_durations: Список целевых длительностей для каждого видео (None = без изменений)
         """
         # Загружаем все видеофрагменты
         video_clips = [VideoFileClip(path) for path in video_paths]
         
-        # Убираем звук из всех видео
-        video_clips = [clip.without_audio() for clip in video_clips]
+        # Снижаем звук из всех видео до 3% (0.03)
+        video_clips = [clip.fx(volumex, 0.03) if clip.audio else clip for clip in video_clips]
+        
+        # Применяем целевые длительности для каждого видео
+        if target_durations:
+            for idx, (clip, target_duration) in enumerate(zip(video_clips, target_durations)):
+                if target_duration is not None and clip.duration > target_duration:
+                    speed_factor = clip.duration / target_duration
+                    video_clips[idx] = clip.fx(speedx, speed_factor)
+                    print(f"[Video Service] Video {idx} accelerated: {clip.duration:.2f}s -> {target_duration:.2f}s")
+                elif target_duration is not None and clip.duration < target_duration:
+                    # Замедляем если нужно увеличить длительность
+                    speed_factor = clip.duration / target_duration
+                    video_clips[idx] = clip.fx(speedx, speed_factor)
+                    print(f"[Video Service] Video {idx} slowed down: {clip.duration:.2f}s -> {target_duration:.2f}s")
         
         # Объединяем видео
         combined_video = concatenate_videoclips(video_clips, method="compose")
@@ -55,7 +70,27 @@ class VideoService:
             speed_factor = video_duration / audio_duration
             combined_video = combined_video.fx(speedx, speed_factor)
         
+        # Извлекаем аудио из видеофрагментов (уже снижено до 3%)
+        video_audio = combined_video.audio if combined_video.audio else None
+        
         # Создаём финальный аудио микс
+        audio_tracks = [voice_audio]  # Голос - основной трек
+        
+        # Добавляем звук из видеофрагментов (если есть)
+        if video_audio:
+            # Подгоняем длительность звука из видео под голос
+            if video_audio.duration != voice_audio.duration:
+                if video_audio.duration > voice_audio.duration:
+                    video_audio = video_audio.subclip(0, voice_audio.duration)
+                else:
+                    # Если короче, зацикливаем или растягиваем
+                    from moviepy.audio.AudioClip import concatenate_audioclips
+                    loops_needed = int(voice_audio.duration / video_audio.duration) + 1
+                    video_audio = concatenate_audioclips([video_audio] * loops_needed)
+                    video_audio = video_audio.subclip(0, voice_audio.duration)
+            audio_tracks.append(video_audio)
+            print(f"[Video Service] Video fragments audio added to mix (3% volume)")
+        
         if music_path and Path(music_path).exists():
             print(f"[Video Service] Adding background music: {music_path}")
             
@@ -79,14 +114,14 @@ class VideoService:
             
             print(f"[Video Service] Music volume: {music_volume_db}dB (multiplier: {volume_multiplier:.3f})")
             
-            # Микшируем голос и музыку
-            final_audio = CompositeAudioClip([voice_audio, music_audio])
+            # Добавляем музыку в микс
+            audio_tracks.append(music_audio)
             
             # Закрываем музыкальный клип
             music_audio.close()
-        else:
-            # Если музыки нет, используем только голос
-            final_audio = voice_audio
+        
+        # Микшируем все аудио треки
+        final_audio = CompositeAudioClip(audio_tracks)
         
         # Добавляем финальный аудио к видео
         final_video = combined_video.set_audio(final_audio)

@@ -67,6 +67,7 @@ class VideoFragmentResponse(BaseModel):
     video_path: str
     scene_order: int
     duration: Optional[float] = None
+    target_duration: Optional[float] = None  # Целевая длительность (для ускорения/замедления)
     
     class Config:
         from_attributes = True
@@ -152,6 +153,7 @@ class EnglishVideoFragmentResponse(BaseModel):
     video_path: str
     scene_order: int
     duration: Optional[float] = None
+    target_duration: Optional[float] = None  # Целевая длительность (для ускорения/замедления)
     
     class Config:
         from_attributes = True
@@ -190,4 +192,8 @@ class EnglishTitleVariantResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class UpdateVideoDurationRequest(BaseModel):
+    target_duration: Optional[float] = None
 

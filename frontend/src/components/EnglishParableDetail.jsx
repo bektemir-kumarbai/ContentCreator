@@ -6,7 +6,8 @@ import {
   uploadEnglishAudio,
   uploadEnglishVideoFragment,
   generateEnglishFinalVideo,
-  regenerateEnglishImages
+  regenerateEnglishImages,
+  updateEnglishVideoDuration
 } from '../api'
 
 const STATIC_BASE_URL = 'http://localhost:8000'
@@ -105,6 +106,17 @@ function EnglishParableDetail() {
       console.error(err)
     } finally {
       setUploadingVideos(prev => ({ ...prev, [sceneOrder]: false }))
+    }
+  }
+
+  const handleDurationChange = async (videoFragmentId, targetDuration) => {
+    try {
+      const value = targetDuration === '' ? null : parseFloat(targetDuration)
+      await updateEnglishVideoDuration(id, videoFragmentId, value)
+      await loadEnglishParable()
+    } catch (err) {
+      setError('Error updating duration')
+      console.error(err)
     }
   }
 
@@ -434,9 +446,10 @@ function EnglishParableDetail() {
           </p>
           <div className="upload-section">
             {englishParable.generated_images.map((image) => {
-              const hasVideo = englishParable.video_fragments?.some(
+              const videoFragment = englishParable.video_fragments?.find(
                 vf => vf.scene_order === image.scene_order
               )
+              const hasVideo = !!videoFragment
               const isDragging = draggingScenes[image.scene_order] || false
               
               const handleDragOver = (e) => {
@@ -458,6 +471,10 @@ function EnglishParableDetail() {
                 }
               }
               
+              const sceneLabel = image.scene_order === -1 
+                ? '⚡ HOOK' 
+                : `Scene ${image.scene_order + 1}`
+              
               return (
                 <div 
                   key={image.id} 
@@ -465,37 +482,75 @@ function EnglishParableDetail() {
                   style={{
                     border: isDragging ? '2px dashed #667eea' : '1px solid #e0e0e0',
                     backgroundColor: isDragging ? '#f0f4ff' : 'white',
-                    transition: 'all 0.3s ease'
+                    transition: 'all 0.3s ease',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    padding: '1rem'
                   }}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
                 >
-                  <span style={{ fontWeight: '600', minWidth: '100px' }}>
-                    Scene {image.scene_order + 1}:
-                  </span>
-                  {hasVideo ? (
-                    <span style={{ color: '#155724', fontWeight: '600' }}>✅ Uploaded</span>
-                  ) : (
-                    <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', width: '100%' }}>
+                    <span style={{ fontWeight: '600', minWidth: '100px' }}>
+                      {sceneLabel}:
+                    </span>
+                    {hasVideo ? (
+                      <>
+                        <span style={{ color: '#155724', fontWeight: '600' }}>✅ Uploaded</span>
+                        {videoFragment.duration && (
+                          <span style={{ color: '#666', fontSize: '0.9rem' }}>
+                            (Current: {videoFragment.duration.toFixed(2)}s)
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="file"
+                          accept="video/*"
+                          onChange={(e) => {
+                            if (e.target.files[0]) {
+                              handleVideoUpload(image.scene_order, e.target.files[0])
+                            }
+                          }}
+                          disabled={uploadingVideos[image.scene_order]}
+                          style={{ flex: 1 }}
+                        />
+                        {uploadingVideos[image.scene_order] && (
+                          <span style={{ color: '#856404' }}>⏳ Uploading...</span>
+                        )}
+                        {isDragging && (
+                          <span style={{ color: '#667eea', fontWeight: '600' }}>📥 Drop video here</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  {hasVideo && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+                      <label style={{ fontSize: '0.9rem', color: '#666' }}>
+                        Target duration (sec):
+                      </label>
                       <input
-                        type="file"
-                        accept="video/*"
-                        onChange={(e) => {
-                          if (e.target.files[0]) {
-                            handleVideoUpload(image.scene_order, e.target.files[0])
-                          }
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        value={videoFragment.target_duration || ''}
+                        onChange={(e) => handleDurationChange(videoFragment.id, e.target.value)}
+                        placeholder="Auto"
+                        style={{
+                          width: '100px',
+                          padding: '0.25rem 0.5rem',
+                          border: '1px solid #ddd',
+                          borderRadius: '4px',
+                          fontSize: '0.9rem'
                         }}
-                        disabled={uploadingVideos[image.scene_order]}
-                        style={{ flex: 1 }}
                       />
-                      {uploadingVideos[image.scene_order] && (
-                        <span style={{ color: '#856404' }}>⏳ Uploading...</span>
-                      )}
-                      {isDragging && (
-                        <span style={{ color: '#667eea', fontWeight: '600' }}>📥 Drop video here</span>
-                      )}
-                    </>
+                      <span style={{ fontSize: '0.8rem', color: '#999' }}>
+                        (leave empty for automatic processing)
+                      </span>
+                    </div>
                   )}
                 </div>
               )
