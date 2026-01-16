@@ -7,7 +7,7 @@ pydantic==2.5.3
 pydantic-settings==2.1.0
 
 # AI/ML APIs
-google-generativeai==0.3.2
+google-genai
 elevenlabs==0.2.27
 requests==2.31.0
 

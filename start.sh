@@ -10,13 +10,15 @@ fi
 
 # Проверка .env файла
 if [ ! -f .env ]; then
-    echo "⚠️  Файл .env не найден. Создайте его на основе .env.example"
+    echo "⚠️  Файл .env не найден. Создайте его на основе ENV_TEMPLATE.txt"
+    echo "   Пример: cp ENV_TEMPLATE.txt .env"
+    echo "   Затем отредактируйте .env и добавьте свои API ключи"
     exit 1
 fi
 
 # Запуск PostgreSQL
 echo "📦 Starting PostgreSQL..."
-docker-compose up -d
+docker compose up -d
 
 # Ожидание запуска PostgreSQL
 echo "⏳ Waiting for PostgreSQL to be ready..."

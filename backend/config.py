@@ -1,5 +1,10 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
+import os
+
+
+# Определяем базовую директорию проекта
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
@@ -16,12 +21,14 @@ class Settings(BaseSettings):
     output_dir: Path = Path("./outputs")
     
     # Gemini models
-    gemini_text_model: str = "gemini-2.0-flash-exp"
-    gemini_image_model: str = "gemini-2.0-flash-exp"
+    gemini_text_model: str = "gemini-3-pro-preview"
+    gemini_image_model: str = "gemini-2.5-flash-image"
     
     class Config:
-        env_file = ".env"
+        env_file = str(BASE_DIR / ".env")
+        env_file_encoding = 'utf-8'
         case_sensitive = False
+        extra = 'ignore'  # Игнорируем лишние переменные из .env
 
 
 settings = Settings()
