@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   getParable,
@@ -26,18 +26,22 @@ function ParableDetail() {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const [uploadingVideos, setUploadingVideos] = useState({})
+  const [draggingScenes, setDraggingScenes] = useState({})
   const [uploadingAudio, setUploadingAudio] = useState(false)
+  const [titleVariants, setTitleVariants] = useState([])
+  const [selectedMusic, setSelectedMusic] = useState(null)
   const [generatingFinal, setGeneratingFinal] = useState(false)
   const [regeneratingImages, setRegeneratingImages] = useState(false)
-  const [showEnglish, setShowEnglish] = useState(false)
 
   useEffect(() => {
     loadParable()
     loadEnglishVersion()
+    loadTitleVariants()
     // Автообновление каждые 5 секунд если идёт обработка
     const interval = setInterval(() => {
       if (parable && ['processing', 'generating_final'].includes(parable.status)) {
         loadParable()
+        loadTitleVariants()
       }
       if (englishVersion && ['processing', 'generating_final'].includes(englishVersion.status)) {
         loadEnglishVersion()
@@ -66,6 +70,18 @@ function ParableDetail() {
     } catch (err) {
       // Английская версия может не существовать, это нормально
       setEnglishVersion(null)
+    }
+  }
+
+  const loadTitleVariants = async () => {
+    try {
+      const response = await fetch(`http://localhost:8000/parables/${id}/title-variants`)
+      if (response.ok) {
+        const data = await response.json()
+        setTitleVariants(data)
+      }
+    } catch (err) {
+      console.error('Error loading title variants:', err)
     }
   }
 
@@ -280,14 +296,31 @@ function ParableDetail() {
 
   return (
     <div>
-      <button className="btn back-button" onClick={() => navigate('/')}>
-        ← Назад к списку
-      </button>
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+        <button className="btn back-button" onClick={() => navigate('/')}>
+          ← Назад к списку
+        </button>
+        {englishVersion ? (
+          <button 
+            className="btn btn-success" 
+            onClick={() => navigate(`/parable/${id}/english`)}
+          >
+            🇬🇧 English Version
+          </button>
+        ) : (
+          <button 
+            className="btn btn-primary" 
+            onClick={handleCreateEnglishVersion}
+          >
+            🌍 Create English Version
+          </button>
+        )}
+      </div>
 
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h2>{parable.title_original}</h2>
+            <h2>🇷🇺 {parable.title_original}</h2>
             <span className={`status ${parable.status}`}>
               {getStatusText(parable.status)}
             </span>
@@ -349,12 +382,71 @@ function ParableDetail() {
         )}
       </div>
 
+      {parable.hook_text && (
+        <div className="card" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+          <h3>⚡ Хук (первые 3 секунды)</h3>
+          <p style={{ fontSize: '1.2em', fontWeight: 'bold', lineHeight: '1.6' }}>
+            {parable.hook_text}
+          </p>
+          <small style={{ opacity: 0.9 }}>Цепляющее начало для максимального retention</small>
+        </div>
+      )}
+
       {parable.text_for_tts && (
         <div className="card">
           <h3>Текст для озвучки</h3>
           <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', color: '#555' }}>
             {parable.text_for_tts}
           </p>
+        </div>
+      )}
+
+      {titleVariants.length > 0 && (
+        <div className="card">
+          <h3>📊 A/B тестирование заголовков</h3>
+          <p style={{ color: '#666', marginBottom: '1rem' }}>
+            LLM сгенерировал 5 вариантов и автоматически выбрал лучший:
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {titleVariants.map((variant) => (
+              <div
+                key={variant.id}
+                style={{
+                  padding: '1rem',
+                  border: variant.is_selected ? '2px solid #4CAF50' : '1px solid #ddd',
+                  borderRadius: '8px',
+                  background: variant.is_selected ? '#f1f8f4' : '#fff',
+                  position: 'relative'
+                }}
+              >
+                {variant.is_selected && (
+                  <span style={{
+                    position: 'absolute',
+                    top: '0.5rem',
+                    right: '0.5rem',
+                    background: '#4CAF50',
+                    color: 'white',
+                    padding: '0.25rem 0.5rem',
+                    borderRadius: '4px',
+                    fontSize: '0.75rem',
+                    fontWeight: 'bold'
+                  }}>
+                    ✓ ВЫБРАН AI
+                  </span>
+                )}
+                <div style={{ fontSize: '0.75rem', color: '#888', marginBottom: '0.25rem', textTransform: 'uppercase' }}>
+                  {variant.variant_type === 'question' && '❓ Вопрос'}
+                  {variant.variant_type === 'intrigue' && '🔮 Интрига'}
+                  {variant.variant_type === 'emotion' && '💔 Эмоция'}
+                  {variant.variant_type === 'numbers' && '🔢 С цифрами'}
+                  {variant.variant_type === 'provocation' && '⚡ Провокация'}
+                </div>
+                <div style={{ fontSize: '1.1rem', fontWeight: variant.is_selected ? 'bold' : 'normal' }}>
+                  {variant.variant_text}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -395,12 +487,43 @@ function ParableDetail() {
                 Сгенерировано {parable.generated_images.length} из {parable.image_prompts.length} изображений
               </p>
               <div className="images-grid">
-                {parable.generated_images.map((image) => (
-                  <div key={image.id} className="image-item">
-                    <img src={`${STATIC_BASE_URL}/${image.image_path}`} alt={`Сцена ${image.scene_order + 1}`} />
-                    <div className="scene-number">Сцена {image.scene_order + 1}</div>
-                  </div>
-                ))}
+                {parable.generated_images
+                  .sort((a, b) => a.scene_order - b.scene_order) // Сортируем: -1 (хук) первым, потом 0, 1, 2...
+                  .map((image) => {
+                  // Находим соответствующий промпт для этого изображения
+                  const prompt = parable.image_prompts.find(p => p.scene_order === image.scene_order)
+                  
+                  // Определяем название сцены
+                  const sceneLabel = image.scene_order === -1 ? '⚡ ХУК' : `Сцена ${image.scene_order + 1}`
+                  
+                  return (
+                    <div key={image.id} className="image-item">
+                      <img src={`${STATIC_BASE_URL}/${image.image_path}`} alt={sceneLabel} />
+                      <div className="scene-number">{sceneLabel}</div>
+                      
+                      {/* Промпты для изображения и видео */}
+                      {prompt && (
+                        <div style={{ 
+                          padding: '0.75rem', 
+                          backgroundColor: '#f8f9fa', 
+                          fontSize: '0.85rem',
+                          borderTop: '1px solid #e0e0e0'
+                        }}>
+                          <div style={{ marginBottom: '0.5rem' }}>
+                            <strong style={{ color: '#667eea' }}>🖼️ Image Prompt:</strong>
+                            <p style={{ margin: '0.25rem 0 0 0', color: '#555' }}>{prompt.prompt_text}</p>
+                          </div>
+                          {prompt.video_prompt_text && (
+                            <div>
+                              <strong style={{ color: '#11998e' }}>🎬 Video Prompt:</strong>
+                              <p style={{ margin: '0.25rem 0 0 0', color: '#555' }}>{prompt.video_prompt_text}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </>
           ) : (
@@ -505,15 +628,47 @@ function ParableDetail() {
         <div className="card">
           <h3>Загрузка видеофрагментов</h3>
           <p style={{ color: '#666', marginBottom: '1rem' }}>
-            Отправьте каждое изображение в Grok для создания видео, затем загрузите полученные видео здесь.
+            Отправьте каждое изображение в Grok для создания видео, затем загрузите или перетащите полученные видео сюда.
           </p>
           <div className="upload-section">
             {parable.generated_images.map((image) => {
               const hasVideo = parable.video_fragments?.some(
                 vf => vf.scene_order === image.scene_order
               )
+              const isDragging = draggingScenes[image.scene_order] || false
+              
+              const handleDragOver = (e) => {
+                e.preventDefault()
+                setDraggingScenes(prev => ({ ...prev, [image.scene_order]: true }))
+              }
+              
+              const handleDragLeave = (e) => {
+                e.preventDefault()
+                setDraggingScenes(prev => ({ ...prev, [image.scene_order]: false }))
+              }
+              
+              const handleDrop = (e) => {
+                e.preventDefault()
+                setDraggingScenes(prev => ({ ...prev, [image.scene_order]: false }))
+                const file = e.dataTransfer.files[0]
+                if (file && file.type.startsWith('video/')) {
+                  handleVideoUpload(image.scene_order, file)
+                }
+              }
+              
               return (
-                <div key={image.id} className="upload-item">
+                <div 
+                  key={image.id} 
+                  className="upload-item"
+                  style={{
+                    border: isDragging ? '2px dashed #667eea' : '1px solid #e0e0e0',
+                    backgroundColor: isDragging ? '#f0f4ff' : 'white',
+                    transition: 'all 0.3s ease'
+                  }}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
                   <span style={{ fontWeight: '600', minWidth: '100px' }}>
                     Сцена {image.scene_order + 1}:
                   </span>
@@ -530,9 +685,13 @@ function ParableDetail() {
                           }
                         }}
                         disabled={uploadingVideos[image.scene_order]}
+                        style={{ flex: 1 }}
                       />
                       {uploadingVideos[image.scene_order] && (
-                        <span style={{ color: '#856404' }}>Загрузка...</span>
+                        <span style={{ color: '#856404' }}>⏳ Загрузка...</span>
+                      )}
+                      {isDragging && (
+                        <span style={{ color: '#667eea', fontWeight: '600' }}>📥 Перетащите видео сюда</span>
                       )}
                     </>
                   )}
@@ -581,176 +740,6 @@ function ParableDetail() {
         </div>
       )}
 
-      {/* ENGLISH VERSION */}
-      {/* Английская версия - всегда доступна */}
-      <div className="card" style={{ marginTop: '2rem', borderTop: '3px solid #007bff' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 style={{ color: '#007bff' }}>🇬🇧 English Version</h2>
-          <button
-            className="btn btn-secondary"
-            onClick={() => setShowEnglish(!showEnglish)}
-            style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}
-          >
-            {showEnglish ? '▲ Скрыть' : '▼ Показать'}
-          </button>
-        </div>
-
-        {showEnglish && (
-          <>
-            {!englishVersion ? (
-              <div style={{ padding: '2rem', textAlign: 'center', backgroundColor: '#e7f3ff', borderRadius: '8px', border: '1px solid #007bff' }}>
-                <p style={{ color: '#004085', fontSize: '1.1rem', marginBottom: '1rem' }}>
-                  📝 Английская версия ещё не создана
-                </p>
-                <button className="btn btn-primary" onClick={handleCreateEnglishVersion}>
-                  🌍 Создать английскую версию
-                </button>
-              </div>
-              ) : (
-                <>
-                  <div style={{ padding: '1rem', backgroundColor: englishVersion.status === 'error' ? '#f8d7da' : '#d1ecf1', borderRadius: '8px', marginBottom: '1rem' }}>
-                    <p style={{ margin: 0 }}>
-                      <strong>Статус:</strong> {getStatusText(englishVersion.status)}
-                      {englishVersion.current_step > 0 && ` (Шаг ${englishVersion.current_step}/5)`}
-                    </p>
-                  </div>
-
-                  {englishVersion.status === 'draft' && (
-                    <button className="btn btn-primary" onClick={handleProcessEnglishVersion} style={{ marginBottom: '1rem' }}>
-                      🚀 Запустить обработку
-                    </button>
-                  )}
-
-                  {englishVersion.text_for_tts && (
-                    <div style={{ padding: '1rem', backgroundColor: '#f8f9fa', borderRadius: '8px', marginBottom: '1rem' }}>
-                      <h4>📝 English TTS Text</h4>
-                      <p style={{ whiteSpace: 'pre-wrap' }}>{englishVersion.text_for_tts}</p>
-                    </div>
-                  )}
-
-                  {englishVersion.generated_images && englishVersion.generated_images.length > 0 && (
-                    <div style={{ marginBottom: '1rem' }}>
-                      <h4>🎨 Images ({englishVersion.generated_images.length})</h4>
-                      <div className="images-grid">
-                        {englishVersion.generated_images.map((image) => (
-                          <div key={image.id} className="image-item">
-                            <img src={`${STATIC_BASE_URL}/${image.image_path}`} alt={`Scene ${image.scene_order + 1}`} />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Audio - всегда показываем */}
-                  <div style={{ padding: '1rem', backgroundColor: '#f8f9fa', borderRadius: '8px', marginBottom: '1rem' }}>
-                    <h4>🎙️ Audio</h4>
-                    {englishVersion.audio_files?.length > 0 ? (
-                      <>
-                        <audio controls>
-                          <source src={`${STATIC_BASE_URL}/${englishVersion.audio_files[0].audio_path}`} type="audio/mpeg" />
-                        </audio>
-                        <div style={{ marginTop: '1rem' }}>
-                          <p style={{ color: '#666', marginBottom: '0.5rem' }}>Replace audio:</p>
-                          <input type="file" accept="audio/*" onChange={(e) => e.target.files[0] && handleEnglishAudioUpload(e.target.files[0])} disabled={uploadingAudio} />
-                          {uploadingAudio && <span style={{ marginLeft: '1rem' }}>⏳ Uploading...</span>}
-                        </div>
-                      </>
-                    ) : (
-                      <div>
-                        <p style={{ color: '#856404' }}>⏸️ Waiting for audio</p>
-                        <input type="file" accept="audio/*" onChange={(e) => e.target.files[0] && handleEnglishAudioUpload(e.target.files[0])} disabled={uploadingAudio} />
-                        {uploadingAudio && <span style={{ marginLeft: '1rem' }}>⏳ Uploading...</span>}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Video Fragments - всегда показываем если есть изображения */}
-                  {englishVersion.generated_images && englishVersion.generated_images.length > 0 && (
-                    <div style={{ padding: '1rem', backgroundColor: '#f8f9fa', borderRadius: '8px', marginBottom: '1rem' }}>
-                      <h4>📹 Upload Video Fragments</h4>
-                      <p style={{ color: '#666', marginBottom: '1rem' }}>
-                        Send each image to Grok to create video, then upload the videos here.
-                      </p>
-                      <div className="upload-section">
-                        {englishVersion.generated_images.map((image) => {
-                          const hasVideo = englishVersion.video_fragments?.some(
-                            vf => vf.scene_order === image.scene_order
-                          )
-                          return (
-                            <div key={image.id} className="upload-item">
-                              <span style={{ fontWeight: '600', minWidth: '100px' }}>
-                                Scene {image.scene_order + 1}:
-                              </span>
-                              {hasVideo ? (
-                                <span style={{ color: '#155724', fontWeight: '600' }}>✅ Uploaded</span>
-                              ) : (
-                                <>
-                                  <input
-                                    type="file"
-                                    accept="video/*"
-                                    onChange={(e) => {
-                                      if (e.target.files[0]) {
-                                        handleEnglishVideoUpload(image.scene_order, e.target.files[0])
-                                      }
-                                    }}
-                                    disabled={uploadingVideos[`en_${image.scene_order}`]}
-                                  />
-                                  {uploadingVideos[`en_${image.scene_order}`] && (
-                                    <span style={{ color: '#856404' }}>Uploading...</span>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Generate Final Video - показываем если все видео загружены */}
-                  {englishVersion.video_fragments?.length > 0 && 
-                   englishVersion.video_fragments?.length === englishVersion.generated_images?.length && (
-                    <div style={{ padding: '1rem', backgroundColor: '#d4edda', borderRadius: '8px', marginBottom: '1rem' }}>
-                      <p style={{ color: '#155724', marginBottom: '1rem' }}>
-                        ✅ All video fragments uploaded! Ready to generate final video.
-                      </p>
-                      <button
-                        className="btn btn-success"
-                        onClick={handleGenerateEnglishFinal}
-                        disabled={generatingFinal}
-                      >
-                        {generatingFinal ? '⏳ Generating...' : '🎬 Generate Final Video'}
-                      </button>
-                    </div>
-                  )}
-
-                  {englishVersion.final_video_path && (
-                    <div style={{ padding: '1rem', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
-                      <h4>🎬 Final Video</h4>
-                      <video controls style={{ width: '100%', maxWidth: '600px' }}>
-                        <source src={`${STATIC_BASE_URL}/${englishVersion.final_video_path}`} type="video/mp4" />
-                      </video>
-                      {englishVersion.final_video_duration && (
-                        <p style={{ marginTop: '0.5rem', color: '#666' }}>
-                          Duration: {englishVersion.final_video_duration.toFixed(1)} seconds
-                        </p>
-                      )}
-                      <div style={{ marginTop: '1rem' }}>
-                        <a
-                          href={`${STATIC_BASE_URL}/${englishVersion.final_video_path}`}
-                          download="english_video.mp4"
-                          className="btn btn-success"
-                        >
-                          ⬇️ Download Video
-                        </a>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
     </div>
   )
 }

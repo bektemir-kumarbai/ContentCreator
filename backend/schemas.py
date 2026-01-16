@@ -14,6 +14,7 @@ class ParableResponse(BaseModel):
     text_original: str
     created_at: datetime
     text_for_tts: Optional[str] = None
+    hook_text: Optional[str] = None
     youtube_title: Optional[str] = None
     youtube_description: Optional[str] = None
     youtube_hashtags: Optional[str] = None
@@ -31,6 +32,7 @@ class ImagePromptResponse(BaseModel):
     id: int
     parable_id: int
     prompt_text: str
+    video_prompt_text: str
     scene_order: int
     
     class Config:
@@ -94,7 +96,10 @@ class EnglishParableResponse(BaseModel):
     id: int
     parable_id: int
     created_at: datetime
+    title_translated: Optional[str] = None
+    text_translated: Optional[str] = None
     text_for_tts: Optional[str] = None
+    hook_text: Optional[str] = None
     youtube_title: Optional[str] = None
     youtube_description: Optional[str] = None
     youtube_hashtags: Optional[str] = None
@@ -112,6 +117,7 @@ class EnglishImagePromptResponse(BaseModel):
     id: int
     english_parable_id: int
     prompt_text: str
+    video_prompt_text: str
     scene_order: int
     
     class Config:
@@ -156,6 +162,31 @@ class EnglishParableDetailResponse(EnglishParableResponse):
     generated_images: List[EnglishGeneratedImageResponse] = []
     audio_files: List[EnglishAudioFileResponse] = []
     video_fragments: List[EnglishVideoFragmentResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+
+# Title Variants (A/B Testing)
+class TitleVariantResponse(BaseModel):
+    id: int
+    parable_id: int
+    variant_text: str
+    variant_type: str
+    is_selected: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class EnglishTitleVariantResponse(BaseModel):
+    id: int
+    english_parable_id: int
+    variant_text: str
+    variant_type: str
+    is_selected: bool
+    created_at: datetime
     
     class Config:
         from_attributes = True

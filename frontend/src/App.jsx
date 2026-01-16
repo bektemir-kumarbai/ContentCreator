@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import ParablesList from './components/ParablesList'
 import ParableDetail from './components/ParableDetail'
 import CreateParable from './components/CreateParable'
+import EnglishParableDetail from './components/EnglishParableDetail'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="/" element={<ParablesList />} />
           <Route path="/create" element={<CreateParable />} />
           <Route path="/parable/:id" element={<ParableDetail />} />
+          <Route path="/parable/:id/english" element={<EnglishParableDetail />} />
         </Routes>
       </div>
     </Router>

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, ForeignKey, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, Float, ForeignKey, DateTime, Boolean, func
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -13,6 +13,7 @@ class Parable(Base):
     
     # Обработанные данные
     text_for_tts = Column(Text)
+    hook_text = Column(Text)  # Цепляющее начало для первых 3 секунд
     youtube_title = Column(Text)
     youtube_description = Column(Text)
     youtube_hashtags = Column(Text)
@@ -42,6 +43,7 @@ class ImagePrompt(Base):
     id = Column(Integer, primary_key=True, index=True)
     parable_id = Column(Integer, ForeignKey("parables.id"), nullable=False)
     prompt_text = Column(Text, nullable=False)
+    video_prompt_text = Column(Text, nullable=False)
     scene_order = Column(Integer, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     
@@ -103,7 +105,10 @@ class EnglishParable(Base):
     created_at = Column(DateTime, server_default=func.now())
     
     # Переведённые данные
+    title_translated = Column(Text)  # Переведённый заголовок
+    text_translated = Column(Text)   # Переведённый текст
     text_for_tts = Column(Text)
+    hook_text = Column(Text)  # Catchy hook for first 3 seconds
     youtube_title = Column(Text)
     youtube_description = Column(Text)
     youtube_hashtags = Column(Text)
@@ -133,6 +138,7 @@ class EnglishImagePrompt(Base):
     id = Column(Integer, primary_key=True, index=True)
     english_parable_id = Column(Integer, ForeignKey("english_parables.id"), nullable=False)
     prompt_text = Column(Text, nullable=False)
+    video_prompt_text = Column(Text, nullable=False)
     scene_order = Column(Integer, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     
@@ -180,4 +186,86 @@ class EnglishVideoFragment(Base):
     
     english_parable = relationship("EnglishParable", back_populates="video_fragments")
     image = relationship("EnglishGeneratedImage", back_populates="video_fragments")
+
+
+# ═══════════════════════════════════════════════════════════════
+# MUSIC SYSTEM MODELS
+# ═══════════════════════════════════════════════════════════════
+
+class MusicTrack(Base):
+    __tablename__ = "music_tracks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    file_path = Column(Text)  # Путь к музыкальному файлу
+    mood = Column(String(50), nullable=False)  # dramatic, calm, motivational, etc.
+    duration = Column(Float)
+    bpm = Column(Integer)
+    description = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Relationships
+    parable_music = relationship("ParableMusic", back_populates="music_track")
+    english_parable_music = relationship("EnglishParableMusic", back_populates="music_track")
+
+
+class ParableMusic(Base):
+    __tablename__ = "parable_music"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    parable_id = Column(Integer, ForeignKey("parables.id"), nullable=False, unique=True)
+    music_track_id = Column(Integer, ForeignKey("music_tracks.id"))
+    volume_level = Column(Float, default=-18.0)  # dB относительно голоса
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Relationships
+    parable = relationship("Parable")
+    music_track = relationship("MusicTrack", back_populates="parable_music")
+
+
+class EnglishParableMusic(Base):
+    __tablename__ = "english_parable_music"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    english_parable_id = Column(Integer, ForeignKey("english_parables.id"), nullable=False, unique=True)
+    music_track_id = Column(Integer, ForeignKey("music_tracks.id"))
+    volume_level = Column(Float, default=-18.0)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Relationships
+    english_parable = relationship("EnglishParable")
+    music_track = relationship("MusicTrack", back_populates="english_parable_music")
+
+
+# ═══════════════════════════════════════════════════════════════
+# A/B TESTING MODELS
+# ═══════════════════════════════════════════════════════════════
+
+class TitleVariant(Base):
+    __tablename__ = "title_variants"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    parable_id = Column(Integer, ForeignKey("parables.id"), nullable=False)
+    variant_text = Column(Text, nullable=False)
+    variant_type = Column(String(50), nullable=False)  # question, intrigue, emotion, numbers, provocation
+    is_selected = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Relationships
+    parable = relationship("Parable")
+
+
+class EnglishTitleVariant(Base):
+    __tablename__ = "english_title_variants"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    english_parable_id = Column(Integer, ForeignKey("english_parables.id"), nullable=False)
+    variant_text = Column(Text, nullable=False)
+    variant_type = Column(String(50), nullable=False)
+    is_selected = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Relationships
+    english_parable = relationship("EnglishParable")
 

@@ -86,13 +86,28 @@ export const createEnglishVersion = async (id) => {
   return response.data
 }
 
+export const getEnglishParable = async (id) => {
+  const response = await api.get(`/parables/${id}/english`)
+  return response.data
+}
+
 export const getEnglishVersion = async (id) => {
   const response = await api.get(`/parables/${id}/english`)
   return response.data
 }
 
+export const processEnglishParable = async (id) => {
+  const response = await api.post(`/parables/${id}/english/process`)
+  return response.data
+}
+
 export const processEnglishVersion = async (id) => {
   const response = await api.post(`/parables/${id}/english/process`)
+  return response.data
+}
+
+export const regenerateEnglishImages = async (id) => {
+  const response = await api.post(`/parables/${id}/english/regenerate-images`)
   return response.data
 }
 

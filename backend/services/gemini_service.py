@@ -110,10 +110,11 @@ class GeminiService:
 2. ОПИСАНИЕ для YouTube (2-3 предложения, НА РУССКОМ ЯЗЫКЕ)
 3. ХЭШТЕГИ (5-10 релевантных хэштегов, НА РУССКОМ ЯЗЫКЕ)
 4. ПРОМПТЫ ДЛЯ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ (3-7 промптов, НА АНГЛИЙСКОМ ЯЗЫКЕ)
+5. ПРОМПТЫ ДЛЯ ГЕНЕРАЦИИ ВИДЕО (для каждого изображения, НА АНГЛИЙСКОМ ЯЗЫКЕ)
 
 ВАЖНО:
 - Заголовок, описание и хэштеги должны быть НА РУССКОМ ЯЗЫКЕ
-- Промпты для изображений должны быть НА АНГЛИЙСКОМ ЯЗЫКЕ
+- Промпты для изображений и видео должны быть НА АНГЛИЙСКОМ ЯЗЫКЕ
 
 ВАЖНО про промпты для изображений:
 - Каждый промпт = отдельная сцена истории
@@ -121,6 +122,13 @@ class GeminiService:
 - Описывай стиль: "cinematic, dramatic lighting, detailed, 4K"
 - Описывай персонажей детально (чтобы они были одинаковыми на всех изображениях)
 - Формат: короткое описание сцены + стиль
+
+ВАЖНО про промпты для видео:
+- Каждый видео-промпт описывает ДВИЖЕНИЕ и ДЕЙСТВИЕ для соответствующей сцены
+- Видео-промпт должен превратить статичное изображение в короткое видео (3-5 секунд)
+- Описывай: движение камеры, анимацию объектов, эффекты
+- Примеры: "Camera slowly zooms in, leaves gently sway in the wind", "Character turns head, dramatic lighting shifts"
+- Формат: короткое описание движения и действия
 
 Верни результат СТРОГО в формате JSON:
 {{
@@ -131,6 +139,11 @@ class GeminiService:
     "prompt for scene 1 in English",
     "prompt for scene 2 in English",
     "prompt for scene 3 in English"
+  ],
+  "video_prompts": [
+    "video animation prompt for scene 1 in English",
+    "video animation prompt for scene 2 in English",
+    "video animation prompt for scene 3 in English"
   ]
 }}
 """
@@ -446,10 +459,11 @@ Your task — create:
 2. DESCRIPTION for YouTube (2-3 sentences, IN ENGLISH)
 3. HASHTAGS (5-10 relevant hashtags, IN ENGLISH)
 4. IMAGE GENERATION PROMPTS (3-7 prompts, IN ENGLISH)
+5. VIDEO GENERATION PROMPTS (for each image, IN ENGLISH)
 
 IMPORTANT:
 - Title, description, and hashtags must be IN ENGLISH
-- Image prompts must be IN ENGLISH
+- Image and video prompts must be IN ENGLISH
 
 IMPORTANT about image prompts:
 - Each prompt = separate story scene
@@ -457,6 +471,13 @@ IMPORTANT about image prompts:
 - Describe style: "cinematic, dramatic lighting, detailed, 4K"
 - Describe characters in detail (so they are the same in all images)
 - Format: short scene description + style
+
+IMPORTANT about video prompts:
+- Each video prompt describes MOVEMENT and ACTION for the corresponding scene
+- Video prompt should turn a static image into a short video (3-5 seconds)
+- Describe: camera movement, object animation, effects
+- Examples: "Camera slowly zooms in, leaves gently sway in the wind", "Character turns head, dramatic lighting shifts"
+- Format: short description of movement and action
 
 Return result STRICTLY in JSON format:
 {{
@@ -467,6 +488,11 @@ Return result STRICTLY in JSON format:
     "prompt for scene 1 in English",
     "prompt for scene 2 in English",
     "prompt for scene 3 in English"
+  ],
+  "video_prompts": [
+    "video animation prompt for scene 1 in English",
+    "video animation prompt for scene 2 in English",
+    "video animation prompt for scene 3 in English"
   ]
 }}
 """
@@ -506,5 +532,388 @@ Return result STRICTLY in JSON format:
             print(f"Error parsing JSON: {e}")
             print(f"Response text: {text}")
             raise ValueError(f"Failed to parse JSON response from Gemini: {e}")
+    
+    async def generate_hook(self, parable_text: str, language: str = "russian") -> str:
+        """
+        Генерирует цепляющий хук для первых 3 секунд видео
+        
+        Args:
+            parable_text: Текст притчи
+            language: Язык (russian или english)
+        """
+        if language == "russian":
+            prompt = f"""
+Ты — эксперт по созданию вирусного контента для YouTube Shorts.
+
+Твоя задача: создать МАКСИМАЛЬНО ЦЕПЛЯЮЩЕЕ начало (хук) для притчи, которое заставит зрителя досмотреть до конца.
+
+ПРИТЧА:
+{parable_text[:300]}
+
+ТРЕБОВАНИЯ К ХУКУ:
+1. Длина: 1-2 коротких предложения (для озвучки за 3 секунды)
+2. Должен создавать ИНТРИГУ или ШОК
+3. Не раскрывать суть, а только заинтриговать
+4. Использовать один из паттернов:
+   - "Что если я скажу вам, что..."
+   - "Этот человек потерял всё, но нашёл главное..."
+   - "Никто не знал, что этот день изменит всё..."
+   - "Однажды мудрец сказал слова, которые шокировали всех..."
+   - "Эта история изменит ваш взгляд на..."
+   - "То, что произошло дальше, никто не ожидал..."
+
+5. ИЗБЕГАТЬ скучных начал типа "Однажды жил...", "В древние времена..."
+6. Создавать эмоциональное напряжение
+7. Обещать ценность или откровение
+
+ВЕРНИ ТОЛЬКО ТЕКСТ ХУКА, БЕЗ ПОЯСНЕНИЙ.
+"""
+        else:  # english
+            prompt = f"""
+You are an expert in creating viral content for YouTube Shorts.
+
+Your task: create a MAXIMALLY CATCHY hook for the first 3 seconds that will make viewers watch until the end.
+
+PARABLE:
+{parable_text[:300]}
+
+HOOK REQUIREMENTS:
+1. Length: 1-2 short sentences (for 3 seconds of voice-over)
+2. Must create INTRIGUE or SHOCK
+3. Don't reveal the essence, only intrigue
+4. Use one of these patterns:
+   - "What if I told you that..."
+   - "This person lost everything, but found what matters most..."
+   - "Nobody knew this day would change everything..."
+   - "A wise man once said words that shocked everyone..."
+   - "This story will change your perspective on..."
+   - "What happened next, nobody expected..."
+
+5. AVOID boring starts like "Once upon a time...", "In ancient times..."
+6. Create emotional tension
+7. Promise value or revelation
+
+RETURN ONLY THE HOOK TEXT, NO EXPLANATIONS.
+"""
+        
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)],
+            ),
+        ]
+        
+        response = self.client.models.generate_content(
+            model=self.text_model_name,
+            contents=contents,
+        )
+        
+        hook = response.text.strip()
+        
+        # Убираем кавычки если LLM их добавил
+        hook = hook.strip('"').strip("'").strip()
+        
+        return hook
+    
+    async def generate_hook_image_prompt(self, hook_text: str, parable_text: str, language: str = "russian") -> Dict[str, str]:
+        """
+        Генерирует промпты для изображения и видео хука
+        
+        Returns:
+            Dict с ключами 'image_prompt' и 'video_prompt'
+        """
+        if language == "russian":
+            prompt = f"""
+Ты — эксперт по визуальному контенту для YouTube Shorts.
+
+ХУК (первые 3 секунды):
+{hook_text}
+
+КОНТЕКСТ ПРИТЧИ:
+{parable_text[:200]}
+
+Твоя задача: создать МАКСИМАЛЬНО ЭФФЕКТНЫЙ визуальный промпт для первых 3 секунд видео.
+
+ТРЕБОВАНИЯ:
+1. Изображение должно быть ДРАМАТИЧНЫМ и ЦЕПЛЯЮЩИМ
+2. Создавать интригу и желание смотреть дальше
+3. Соответствовать хуку
+4. Быть ярким, контрастным, привлекающим внимание
+5. Можно использовать:
+   - Крупный план лица с эмоцией
+   - Драматичный момент действия
+   - Загадочная атмосфера
+   - Яркие цвета и контрасты
+
+ВЕРНИ СТРОГО В ФОРМАТЕ JSON:
+{{
+  "image_prompt": "Детальный промпт для генерации изображения на английском",
+  "video_prompt": "Промпт для генерации видео из этого изображения на английском"
+}}
+
+Промпты должны быть на АНГЛИЙСКОМ языке для Gemini/Grok!
+"""
+        else:  # english
+            prompt = f"""
+You are an expert in visual content for YouTube Shorts.
+
+HOOK (first 3 seconds):
+{hook_text}
+
+PARABLE CONTEXT:
+{parable_text[:200]}
+
+Your task: create the MOST EFFECTIVE visual prompt for the first 3 seconds of video.
+
+REQUIREMENTS:
+1. Image must be DRAMATIC and CATCHY
+2. Create intrigue and desire to watch further
+3. Match the hook
+4. Be bright, contrasting, attention-grabbing
+5. Can use:
+   - Close-up of face with emotion
+   - Dramatic action moment
+   - Mysterious atmosphere
+   - Bright colors and contrasts
+
+RETURN STRICTLY IN JSON FORMAT:
+{{
+  "image_prompt": "Detailed prompt for image generation in English",
+  "video_prompt": "Prompt for video generation from this image in English"
+}}
+
+Prompts must be in ENGLISH for Gemini/Grok!
+"""
+        
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)],
+            ),
+        ]
+        
+        response = self.client.models.generate_content(
+            model=self.text_model_name,
+            contents=contents,
+        )
+        
+        text = response.text.strip()
+        
+        # Извлекаем JSON
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        
+        try:
+            result = json.loads(text)
+            return {
+                "image_prompt": result.get("image_prompt", ""),
+                "video_prompt": result.get("video_prompt", "")
+            }
+        except json.JSONDecodeError as e:
+            print(f"Error parsing hook prompts JSON: {e}")
+            print(f"Response: {text}")
+            # Возвращаем дефолтные промпты
+            return {
+                "image_prompt": f"Dramatic opening scene for: {hook_text}",
+                "video_prompt": f"Cinematic video opening for: {hook_text}"
+            }
+    
+    async def generate_title_variants(self, parable_text: str, language: str = "russian") -> List[Dict[str, str]]:
+        """
+        Генерирует 5 вариантов заголовков для A/B тестирования
+        
+        Returns:
+            List of dicts with 'text' and 'type' keys
+        """
+        if language == "russian":
+            prompt = f"""
+Ты — эксперт по созданию вирусных заголовков для YouTube Shorts.
+
+Твоя задача: создать 5 РАЗНЫХ вариантов заголовков для этой притчи.
+
+ПРИТЧА:
+{parable_text[:400]}
+
+СОЗДАЙ 5 ВАРИАНТОВ ЗАГОЛОВКОВ:
+
+1. ВОПРОС (question) - заголовок в форме вопроса, который заставляет задуматься
+   Пример: "Что важнее: деньги или счастье?"
+
+2. ИНТРИГА (intrigue) - создаёт загадку, обещает откровение
+   Пример: "Мудрец раскрыл секрет, который изменит вашу жизнь"
+
+3. ЭМОЦИЯ (emotion) - играет на эмоциях, создаёт сильное чувство
+   Пример: "Эта история заставит вас плакать"
+
+4. С ЦИФРАМИ (numbers) - использует конкретные числа
+   Пример: "3 урока мудрости, которые изменят всё"
+
+5. ПРОВОКАЦИЯ (provocation) - смелое утверждение, вызов
+   Пример: "Вы всю жизнь делали это неправильно"
+
+ТРЕБОВАНИЯ:
+- Каждый заголовок до 100 символов
+- Заголовки должны быть РАЗНЫМИ по стилю
+- Цепляющие, вирусные, заставляющие кликнуть
+- На русском языке
+
+ВЕРНИ СТРОГО В ФОРМАТЕ JSON:
+{{
+  "variants": [
+    {{"type": "question", "text": "заголовок 1"}},
+    {{"type": "intrigue", "text": "заголовок 2"}},
+    {{"type": "emotion", "text": "заголовок 3"}},
+    {{"type": "numbers", "text": "заголовок 4"}},
+    {{"type": "provocation", "text": "заголовок 5"}}
+  ]
+}}
+"""
+        else:  # english
+            prompt = f"""
+You are an expert in creating viral titles for YouTube Shorts.
+
+Your task: create 5 DIFFERENT title variants for this parable.
+
+PARABLE:
+{parable_text[:400]}
+
+CREATE 5 TITLE VARIANTS:
+
+1. QUESTION - title in question form that makes you think
+   Example: "What's more important: money or happiness?"
+
+2. INTRIGUE - creates mystery, promises revelation
+   Example: "A wise man revealed a secret that will change your life"
+
+3. EMOTION - plays on emotions, creates strong feeling
+   Example: "This story will make you cry"
+
+4. NUMBERS - uses specific numbers
+   Example: "3 lessons of wisdom that will change everything"
+
+5. PROVOCATION - bold statement, challenge
+   Example: "You've been doing this wrong your whole life"
+
+REQUIREMENTS:
+- Each title up to 100 characters
+- Titles must be DIFFERENT in style
+- Catchy, viral, making people click
+- In English
+
+RETURN STRICTLY IN JSON FORMAT:
+{{
+  "variants": [
+    {{"type": "question", "text": "title 1"}},
+    {{"type": "intrigue", "text": "title 2"}},
+    {{"type": "emotion", "text": "title 3"}},
+    {{"type": "numbers", "text": "title 4"}},
+    {{"type": "provocation", "text": "title 5"}}
+  ]
+}}
+"""
+        
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)],
+            ),
+        ]
+        
+        response = self.client.models.generate_content(
+            model=self.text_model_name,
+            contents=contents,
+        )
+        
+        text = response.text.strip()
+        
+        # Извлекаем JSON
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        
+        try:
+            result = json.loads(text)
+            return result.get("variants", [])
+        except json.JSONDecodeError as e:
+            print(f"Error parsing title variants JSON: {e}")
+            print(f"Response: {text}")
+            # Возвращаем пустой список если не удалось распарсить
+            return []
+    
+    async def select_best_title(self, variants: List[Dict[str, str]], parable_text: str) -> int:
+        """
+        LLM выбирает лучший заголовок из вариантов
+        
+        Args:
+            variants: Список вариантов с 'text' и 'type'
+            parable_text: Текст притчи
+        
+        Returns:
+            Индекс лучшего варианта (0-4)
+        """
+        variants_text = "\n".join([
+            f"{i+1}. [{v['type']}] {v['text']}" 
+            for i, v in enumerate(variants)
+        ])
+        
+        prompt = f"""
+Ты — эксперт по YouTube Shorts и вирусному контенту.
+
+ПРИТЧА (краткое содержание):
+{parable_text[:300]}
+
+ВАРИАНТЫ ЗАГОЛОВКОВ:
+{variants_text}
+
+Твоя задача: выбрать ОДИН ЛУЧШИЙ заголовок, который:
+1. Максимально привлечёт внимание
+2. Заставит кликнуть на видео
+3. Соответствует содержанию притчи
+4. Имеет высокий потенциал виральности
+
+Учитывай:
+- Заголовки с вопросами часто работают хорошо
+- Интрига создаёт желание узнать ответ
+- Эмоции цепляют
+- Цифры привлекают внимание
+- Провокация вызывает реакцию
+
+ВЕРНИ ТОЛЬКО НОМЕР (1-5) ЛУЧШЕГО ВАРИАНТА, БЕЗ ПОЯСНЕНИЙ.
+"""
+        
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=prompt)],
+            ),
+        ]
+        
+        response = self.client.models.generate_content(
+            model=self.text_model_name,
+            contents=contents,
+        )
+        
+        result = response.text.strip()
+        
+        # Извлекаем номер
+        try:
+            # Пытаемся найти цифру в ответе
+            import re
+            match = re.search(r'\d+', result)
+            if match:
+                number = int(match.group())
+                # Конвертируем в индекс (1-5 -> 0-4)
+                index = number - 1
+                if 0 <= index < len(variants):
+                    return index
+        except:
+            pass
+        
+        # Если не удалось распарсить, выбираем первый вариант
+        print(f"[Gemini] Could not parse best title selection: {result}, defaulting to 0")
+        return 0
     
 

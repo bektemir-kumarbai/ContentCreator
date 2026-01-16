@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS image_prompts (
     id SERIAL PRIMARY KEY,
     parable_id INTEGER NOT NULL REFERENCES parables(id) ON DELETE CASCADE,
     prompt_text TEXT NOT NULL,
+    video_prompt_text TEXT NOT NULL,
     scene_order INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

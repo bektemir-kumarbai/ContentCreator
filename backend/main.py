@@ -145,9 +145,19 @@ async def process_parable_pipeline(parable_id: int, db: Session):
             db.commit()
             
             tts_text = await gemini_service.rewrite_for_tts(parable.text_original)
-            parable.text_for_tts = tts_text
+            
+            # Генерируем хук для первых 3 секунд
+            print(f"[Parable {parable_id}] Generating hook...")
+            hook_text = await gemini_service.generate_hook(parable.text_original, language="russian")
+            parable.hook_text = hook_text
+            print(f"[Parable {parable_id}] Hook: {hook_text}")
+            
+            # Автоматически добавляем хук в начало TTS текста
+            final_tts_text = f"{hook_text}\n\n{tts_text}"
+            parable.text_for_tts = final_tts_text
+            
             db.commit()
-            print(f"[Parable {parable_id}] ✅ Step 1 completed")
+            print(f"[Parable {parable_id}] ✅ Step 1 completed (hook added to TTS)")
         else:
             print(f"[Parable {parable_id}] ⏭️  Step 1 already completed, skipping...")
             tts_text = parable.text_for_tts
@@ -174,15 +184,78 @@ async def process_parable_pipeline(parable_id: int, db: Session):
                 parable.youtube_hashtags = metadata['youtube_hashtags']
                 db.commit()
                 
-                # Сохраняем промпты в БД
+                # Генерируем промпты для изображения хука (scene_order = -1)
+                print(f"[Parable {parable_id}] Generating hook image prompts...")
+                hook_prompts = await gemini_service.generate_hook_image_prompt(
+                    parable.hook_text,
+                    parable.text_original,
+                    language="russian"
+                )
+                
+                # Добавляем промпт для хука (scene_order = -1, будет первым)
+                hook_prompt = ImagePrompt(
+                    parable_id=parable_id,
+                    prompt_text=hook_prompts['image_prompt'],
+                    video_prompt_text=hook_prompts['video_prompt'],
+                    scene_order=-1  # Хук идёт ПЕРЕД всеми сценами
+                )
+                db.add(hook_prompt)
+                
+                # Сохраняем промпты для основных сцен
+                video_prompts = metadata.get('video_prompts', [])
                 for idx, prompt_text in enumerate(metadata['image_prompts']):
+                    # Получаем соответствующий video_prompt или используем пустую строку
+                    video_prompt = video_prompts[idx] if idx < len(video_prompts) else ""
+                    
                     prompt = ImagePrompt(
                         parable_id=parable_id,
                         prompt_text=prompt_text,
+                        video_prompt_text=video_prompt,
                         scene_order=idx
                     )
                     db.add(prompt)
                 db.commit()
+                
+                # Генерируем варианты заголовков для A/B тестирования
+                print(f"[Parable {parable_id}] Generating title variants for A/B testing...")
+                from models import TitleVariant
+                
+                # Проверяем есть ли уже варианты
+                existing_variants = db.query(TitleVariant).filter(
+                    TitleVariant.parable_id == parable_id
+                ).count()
+                
+                if existing_variants == 0:
+                    title_variants = await gemini_service.generate_title_variants(
+                        parable.text_original,
+                        language="russian"
+                    )
+                    
+                    for variant_data in title_variants:
+                        variant = TitleVariant(
+                            parable_id=parable_id,
+                            variant_text=variant_data.get('text', ''),
+                            variant_type=variant_data.get('type', 'unknown'),
+                            is_selected=False
+                        )
+                        db.add(variant)
+                    db.commit()
+                    print(f"[Parable {parable_id}] Generated {len(title_variants)} title variants")
+                    
+                    # LLM автоматически выбирает лучший заголовок
+                    if title_variants:
+                        print(f"[Parable {parable_id}] LLM selecting best title...")
+                        best_index = await gemini_service.select_best_title(title_variants, parable.text_original)
+                        
+                        # Получаем все варианты из БД
+                        all_variants = db.query(TitleVariant).filter(
+                            TitleVariant.parable_id == parable_id
+                        ).order_by(TitleVariant.id).all()
+                        
+                        if best_index < len(all_variants):
+                            all_variants[best_index].is_selected = True
+                            db.commit()
+                            print(f"[Parable {parable_id}] ✅ Best title selected: {all_variants[best_index].variant_text}")
             else:
                 print(f"[Parable {parable_id}] Prompts already exist, using existing...")
             
@@ -229,11 +302,13 @@ async def process_parable_pipeline(parable_id: int, db: Session):
                 saved_count = 0
                 for idx, image_path in enumerate(image_paths):
                     if image_path:  # Проверяем что изображение действительно есть
+                        # Используем scene_order из промпта, а не idx
+                        prompt = prompts[idx]
                         image = GeneratedImage(
                             parable_id=parable_id,
-                            prompt_id=prompts[idx].id,
+                            prompt_id=prompt.id,
                             image_path=image_path,
-                            scene_order=idx
+                            scene_order=prompt.scene_order  # -1 для хука, 0,1,2... для остальных
                         )
                         db.add(image)
                         saved_count += 1
@@ -397,6 +472,16 @@ async def upload_audio(
     
     print(f"[Parable {parable_id}] ✅ Audio uploaded: {audio_path} ({duration:.2f}s)")
     
+    # Автоматически подбираем и скачиваем музыку
+    try:
+        from services.music_service import MusicService
+        music_service = MusicService()
+        music_track = await music_service.assign_music_to_parable(parable_id, gemini_service, db)
+        if music_track:
+            print(f"[Parable {parable_id}] ✅ Music assigned: {music_track.name}")
+    except Exception as e:
+        print(f"[Parable {parable_id}] ⚠️  Music assignment failed: {e}")
+    
     return audio_file
 
 
@@ -512,11 +597,13 @@ async def regenerate_images_task(parable_id: int, db: Session):
         saved_count = 0
         for idx, image_path in enumerate(image_paths):
             if image_path:
+                # Используем scene_order из промпта, а не idx
+                prompt = prompts[idx]
                 image = GeneratedImage(
                     parable_id=parable_id,
-                    prompt_id=prompts[idx].id,
+                    prompt_id=prompt.id,
                     image_path=image_path,
-                    scene_order=idx
+                    scene_order=prompt.scene_order  # -1 для хука, 0,1,2... для остальных
                 )
                 db.add(image)
                 saved_count += 1
@@ -596,12 +683,28 @@ async def generate_final_video_task(parable_id: int, db: Session):
         
         print(f"[Parable {parable_id}] Generating final video...")
         
+        # Получаем музыку если назначена
+        from models import ParableMusic
+        parable_music = db.query(ParableMusic).filter(
+            ParableMusic.parable_id == parable_id
+        ).first()
+        
+        music_path = None
+        music_volume = -18.0
+        
+        if parable_music and parable_music.music_track:
+            music_path = parable_music.music_track.file_path
+            music_volume = parable_music.volume_level
+            print(f"[Parable {parable_id}] Using music: {parable_music.music_track.name}")
+        
         # Создаём финальное видео
         final_path, duration = await video_service.create_final_video(
             video_paths=video_paths,
             audio_path=audio_file.audio_path,
             text_for_subtitles=parable.text_for_tts,
-            parable_id=parable_id
+            parable_id=parable_id,
+            music_path=music_path,
+            music_volume_db=music_volume
         )
         
         # Обновляем притчу
@@ -648,6 +751,108 @@ async def delete_parable(parable_id: int, db: Session = Depends(get_db)):
 
 
 # ═══════════════════════════════════════════════════════════════
+# TITLE VARIANTS (A/B TESTING) ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/parables/{parable_id}/title-variants")
+async def get_title_variants(parable_id: int, db: Session = Depends(get_db)):
+    """
+    Получает все варианты заголовков для притчи
+    """
+    from models import TitleVariant
+    
+    variants = db.query(TitleVariant).filter(
+        TitleVariant.parable_id == parable_id
+    ).all()
+    
+    return variants
+
+
+@app.post("/parables/{parable_id}/title-variants/{variant_id}/select")
+async def select_title_variant(parable_id: int, variant_id: int, db: Session = Depends(get_db)):
+    """
+    Выбирает вариант заголовка
+    """
+    from models import TitleVariant
+    
+    # Снимаем выбор со всех вариантов этой притчи
+    db.query(TitleVariant).filter(
+        TitleVariant.parable_id == parable_id
+    ).update({"is_selected": False})
+    
+    # Выбираем нужный вариант
+    variant = db.query(TitleVariant).filter(
+        TitleVariant.id == variant_id,
+        TitleVariant.parable_id == parable_id
+    ).first()
+    
+    if not variant:
+        raise HTTPException(status_code=404, detail="Variant not found")
+    
+    variant.is_selected = True
+    db.commit()
+    
+    return {"message": "Title variant selected", "variant_id": variant_id}
+
+
+@app.get("/parables/{parable_id}/english/title-variants")
+async def get_english_title_variants(parable_id: int, db: Session = Depends(get_db)):
+    """
+    Получает все варианты заголовков для английской версии
+    """
+    from models import EnglishTitleVariant, EnglishParable
+    
+    # Находим английскую версию
+    english_parable = db.query(EnglishParable).filter(
+        EnglishParable.parable_id == parable_id
+    ).first()
+    
+    if not english_parable:
+        raise HTTPException(status_code=404, detail="English version not found")
+    
+    variants = db.query(EnglishTitleVariant).filter(
+        EnglishTitleVariant.english_parable_id == english_parable.id
+    ).all()
+    
+    return variants
+
+
+@app.post("/parables/{parable_id}/english/title-variants/{variant_id}/select")
+async def select_english_title_variant(parable_id: int, variant_id: int, db: Session = Depends(get_db)):
+    """
+    Выбирает вариант заголовка для английской версии
+    """
+    from models import EnglishTitleVariant, EnglishParable
+    
+    # Находим английскую версию
+    english_parable = db.query(EnglishParable).filter(
+        EnglishParable.parable_id == parable_id
+    ).first()
+    
+    if not english_parable:
+        raise HTTPException(status_code=404, detail="English version not found")
+    
+    # Снимаем выбор со всех вариантов
+    db.query(EnglishTitleVariant).filter(
+        EnglishTitleVariant.english_parable_id == english_parable.id
+    ).update({"is_selected": False})
+    
+    # Выбираем нужный вариант
+    variant = db.query(EnglishTitleVariant).filter(
+        EnglishTitleVariant.id == variant_id,
+        EnglishTitleVariant.english_parable_id == english_parable.id
+    ).first()
+    
+    if not variant:
+        raise HTTPException(status_code=404, detail="Variant not found")
+    
+    variant.is_selected = True
+    db.commit()
+    
+    return {"message": "English title variant selected", "variant_id": variant_id}
+
+
+# ═══════════════════════════════════════════════════════════════
 # ENGLISH VERSION ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
 
@@ -664,16 +869,12 @@ async def create_english_version(
     if not parable:
         raise HTTPException(status_code=404, detail="Parable not found")
     
-    # Проверяем что оригинал обработан
-    if not parable.text_for_tts:
-        raise HTTPException(status_code=400, detail="Original parable must be processed first")
-    
     # Проверяем что английская версия ещё не создана
     existing = db.query(EnglishParable).filter(EnglishParable.parable_id == parable_id).first()
     if existing:
-        raise HTTPException(status_code=400, detail="English version already exists")
+        return existing  # Возвращаем существующую версию вместо ошибки
     
-    # Создаём английскую версию
+    # Создаём английскую версию - просто переводим заголовок и текст
     english_parable = EnglishParable(
         parable_id=parable_id,
         status="draft"
@@ -681,6 +882,68 @@ async def create_english_version(
     db.add(english_parable)
     db.commit()
     db.refresh(english_parable)
+    
+    # СРАЗУ переводим заголовок и текст притчи
+    try:
+        print(f"[English Parable {english_parable.id}] Translating title and text...")
+        
+        # Простой перевод заголовка и текста
+        translation_prompt = f"""
+Translate the following Russian parable to English. Keep the meaning and style.
+
+TITLE: {parable.title_original}
+
+TEXT:
+{parable.text_original}
+
+Return ONLY the translation in this format:
+TITLE: [translated title]
+TEXT: [translated text]
+"""
+        
+        from google.genai import types
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=translation_prompt)],
+            ),
+        ]
+        
+        response = gemini_service.client.models.generate_content(
+            model=gemini_service.text_model_name,
+            contents=contents,
+        )
+        
+        translation = response.text.strip()
+        
+        # Парсим ответ
+        lines = translation.split('\n')
+        english_title = ""
+        english_text = ""
+        
+        for i, line in enumerate(lines):
+            if line.startswith("TITLE:"):
+                english_title = line.replace("TITLE:", "").strip()
+            elif line.startswith("TEXT:"):
+                # Всё после TEXT: это текст
+                english_text = '\n'.join(lines[i:]).replace("TEXT:", "").strip()
+                break
+        
+        # Сохраняем переведённые заголовок и текст
+        english_parable.title_translated = english_title
+        english_parable.text_translated = english_text
+        
+        db.commit()
+        db.refresh(english_parable)
+        
+        print(f"[English Parable {english_parable.id}] ✅ Translation completed")
+        print(f"[English Parable {english_parable.id}] Title: {english_title}")
+        
+    except Exception as e:
+        print(f"[English Parable {english_parable.id}] ❌ Error: {str(e)}")
+        english_parable.status = "error"
+        english_parable.error_message = str(e)
+        db.commit()
     
     return english_parable
 
@@ -748,17 +1011,91 @@ async def process_english_parable_pipeline(english_parable_id: int, original_par
         
         start_step = english_parable.current_step
         
-        # Шаг 1: Переводим текст для TTS
+        # Шаг 1: Переписываем переведённый текст для TTS
         if start_step <= 1:
-            print(f"[English Parable {english_parable_id}] Step 1: Translating text for TTS...")
+            print(f"[English Parable {english_parable_id}] Step 1: Rewriting English text for TTS...")
             english_parable.current_step = 1
             db.commit()
             
-            english_tts_text = await gemini_service.translate_to_english_for_tts(parable.text_for_tts)
-            english_parable.text_for_tts = english_tts_text
+            # Используем ПЕРЕВЕДЁННЫЙ текст
+            source_text = english_parable.text_translated if english_parable.text_translated else "No translated text available"
+            
+            print(f"[English Parable {english_parable_id}] Source text: {source_text[:100]}...")
+            
+            # Используем специальную функцию для английского текста
+            prompt = f"""
+You are a professional scriptwriter for audio content.
+
+Your task: Rewrite the English text specifically for voice-over by text-to-speech synthesizer.
+
+REQUIREMENTS:
+1. Make the text expressive and dramatic
+2. Add emotional tags for ElevenLabs (use ONLY these tags):
+
+   EMOTIONAL STATES:
+   [excited] — excitement, agitation
+   [nervous] — nervousness, anxiety
+   [frustrated] — disappointment, frustration
+   [sorrowful] — sadness, sorrow
+   [calm] — calmness, peace
+
+   REACTIONS:
+   [sigh] — sigh
+   [laughs] — laughter
+   [gulps] — gulp (from excitement)
+   [gasps] — gasp, surprise
+   [whispers] — whisper
+
+   COGNITIVE PAUSES:
+   [pauses] — pause, reflection
+   [hesitates] — hesitation, indecision
+   [stammers] — stutter, stumble
+   [resigned tone] — resigned tone
+
+   TONAL NUANCES:
+   [cheerfully] — cheerfully, joyfully
+   [flatly] — emotionlessly, monotonously
+   [deadpan] — impassively, deadpan
+   [playfully] — playfully, jokingly
+
+3. DO NOT use other tags
+4. Keep the text short — for videos up to 60 seconds
+5. Use short sentences for better voice-over
+6. Return ONLY the rewritten text, without headings or explanations
+
+ENGLISH TEXT:
+{source_text}
+"""
+            
+            from google.genai import types
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=prompt)],
+                ),
+            ]
+            
+            response = gemini_service.client.models.generate_content(
+                model=gemini_service.text_model_name,
+                contents=contents,
+            )
+            
+            english_tts_text = response.text.strip()
+            
+            # Генерируем хук для первых 3 секунд
+            print(f"[English Parable {english_parable_id}] Generating hook...")
+            hook_text = await gemini_service.generate_hook(source_text, language="english")
+            english_parable.hook_text = hook_text
+            print(f"[English Parable {english_parable_id}] Hook: {hook_text}")
+            
+            # Автоматически добавляем хук в начало TTS текста
+            final_english_tts_text = f"{hook_text}\n\n{english_tts_text}"
+            english_parable.text_for_tts = final_english_tts_text
+            
             db.commit()
             
-            print(f"[English Parable {english_parable_id}] ✅ Step 1 completed")
+            print(f"[English Parable {english_parable_id}] ✅ Step 1 completed (hook added to TTS)")
+            print(f"[English Parable {english_parable_id}] TTS text: {english_tts_text[:100]}...")
         else:
             print(f"[English Parable {english_parable_id}] ⏭️  Step 1 already completed, skipping...")
         
@@ -778,15 +1115,80 @@ async def process_english_parable_pipeline(english_parable_id: int, original_par
             english_parable.youtube_hashtags = metadata.get("youtube_hashtags")
             db.commit()
             
-            # Сохраняем промпты
+            # Генерируем промпты для изображения хука (scene_order = -1)
+            print(f"[English Parable {english_parable_id}] Generating hook image prompts...")
+            source_text_for_hook = english_parable.text_translated if english_parable.text_translated else english_parable.text_for_tts
+            hook_prompts = await gemini_service.generate_hook_image_prompt(
+                english_parable.hook_text,
+                source_text_for_hook,
+                language="english"
+            )
+            
+            # Добавляем промпт для хука (scene_order = -1)
+            hook_prompt = EnglishImagePrompt(
+                english_parable_id=english_parable_id,
+                prompt_text=hook_prompts['image_prompt'],
+                video_prompt_text=hook_prompts['video_prompt'],
+                scene_order=-1  # Хук идёт ПЕРЕД всеми сценами
+            )
+            db.add(hook_prompt)
+            
+            # Сохраняем промпты для основных сцен
+            video_prompts = metadata.get('video_prompts', [])
             for idx, prompt_text in enumerate(metadata.get("image_prompts", [])):
+                # Получаем соответствующий video_prompt или используем пустую строку
+                video_prompt = video_prompts[idx] if idx < len(video_prompts) else ""
+                
                 prompt = EnglishImagePrompt(
                     english_parable_id=english_parable_id,
                     prompt_text=prompt_text,
+                    video_prompt_text=video_prompt,
                     scene_order=idx
                 )
                 db.add(prompt)
             db.commit()
+            
+            # Генерируем варианты заголовков для A/B тестирования
+            print(f"[English Parable {english_parable_id}] Generating title variants for A/B testing...")
+            from models import EnglishTitleVariant
+            
+            # Проверяем есть ли уже варианты
+            existing_variants = db.query(EnglishTitleVariant).filter(
+                EnglishTitleVariant.english_parable_id == english_parable_id
+            ).count()
+            
+            if existing_variants == 0:
+                source_text = english_parable.text_translated if english_parable.text_translated else english_parable.text_for_tts
+                title_variants = await gemini_service.generate_title_variants(
+                    source_text,
+                    language="english"
+                )
+                
+                for variant_data in title_variants:
+                    variant = EnglishTitleVariant(
+                        english_parable_id=english_parable_id,
+                        variant_text=variant_data.get('text', ''),
+                        variant_type=variant_data.get('type', 'unknown'),
+                        is_selected=False
+                    )
+                    db.add(variant)
+                db.commit()
+                print(f"[English Parable {english_parable_id}] Generated {len(title_variants)} title variants")
+                
+                # LLM автоматически выбирает лучший заголовок
+                if title_variants:
+                    print(f"[English Parable {english_parable_id}] LLM selecting best title...")
+                    best_index = await gemini_service.select_best_title(title_variants, source_text)
+                    
+                    # Получаем все варианты из БД
+                    all_variants = db.query(EnglishTitleVariant).filter(
+                        EnglishTitleVariant.english_parable_id == english_parable_id
+                    ).order_by(EnglishTitleVariant.id).all()
+                    
+                    if best_index < len(all_variants):
+                        all_variants[best_index].is_selected = True
+                        db.commit()
+                        print(f"[English Parable {english_parable_id}] ✅ Best title selected: {all_variants[best_index].variant_text}")
             
             print(f"[English Parable {english_parable_id}] ✅ Step 2 completed")
         else:
@@ -817,21 +1219,21 @@ async def process_english_parable_pipeline(english_parable_id: int, original_par
                 )
                 
                 for idx, image_path in enumerate(image_paths):
+                    # Используем scene_order из промпта, а не idx
+                    prompt = prompts[idx]
                     existing_image_db = db.query(EnglishGeneratedImage).filter(
                         EnglishGeneratedImage.english_parable_id == english_parable_id,
-                        EnglishGeneratedImage.scene_order == idx
+                        EnglishGeneratedImage.scene_order == prompt.scene_order
                     ).first()
                     
                     if not existing_image_db:
-                        prompt_obj = next((p for p in prompts if p.scene_order == idx), None)
-                        if prompt_obj:
-                            image = EnglishGeneratedImage(
-                                english_parable_id=english_parable_id,
-                                prompt_id=prompt_obj.id,
-                                image_path=image_path,
-                                scene_order=idx
-                            )
-                            db.add(image)
+                        image = EnglishGeneratedImage(
+                            english_parable_id=english_parable_id,
+                            prompt_id=prompt.id,
+                            image_path=image_path,
+                            scene_order=prompt.scene_order  # -1 для хука, 0,1,2... для остальных
+                        )
+                        db.add(image)
                 db.commit()
             else:
                 print(f"[English Parable {english_parable_id}] All {prompts_count} images already exist, skipping generation.")
@@ -1076,12 +1478,28 @@ async def generate_english_final_video_task(english_parable_id: int, db: Session
         
         print(f"[English Parable {english_parable_id}] Generating final video...")
         
+        # Получаем музыку если назначена
+        from models import EnglishParableMusic
+        english_parable_music = db.query(EnglishParableMusic).filter(
+            EnglishParableMusic.english_parable_id == english_parable_id
+        ).first()
+        
+        music_path = None
+        music_volume = -18.0
+        
+        if english_parable_music and english_parable_music.music_track:
+            music_path = english_parable_music.music_track.file_path
+            music_volume = english_parable_music.volume_level
+            print(f"[English Parable {english_parable_id}] Using music: {english_parable_music.music_track.name}")
+        
         # Создаём финальное видео
         final_path, duration = await video_service.create_final_video(
             video_paths=video_paths,
             audio_path=audio_file.audio_path,
             text_for_subtitles=english_parable.text_for_tts,
-            parable_id=f"english_{english_parable_id}"
+            parable_id=f"english_{english_parable_id}",
+            music_path=music_path,
+            music_volume_db=music_volume
         )
         
         # Обновляем притчу
